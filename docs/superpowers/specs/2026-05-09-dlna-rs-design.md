@@ -85,17 +85,28 @@ struct Folder {
 
 ## DLNA object id scheme
 
-`upnp-serve`'s `ContentDirectoryBrowseProvider` is given an opaque `object_id`. We use a single u64 id space; the `Library` maps each id to either a file or directory `PathBuf` plus a kind tag:
+`librqbit-upnp-serve`'s `ContentDirectoryBrowseProvider` trait uses `usize` ids:
+
+```rust
+pub trait ContentDirectoryBrowseProvider: Send + Sync {
+    fn browse_direct_children(&self, parent_id: usize, http_hostname: &str) -> Vec<ItemOrContainer>;
+    fn browse_metadata(&self, object_id: usize, http_hostname: &str) -> Vec<ItemOrContainer>;
+}
+```
+
+So our id space is a single `usize`:
 
 ```rust
 enum Entry { File(PathBuf), Dir(PathBuf) }
-files: HashMap<u64, Entry>
+struct IdMap {
+    forward: HashMap<usize, Entry>,
+    reverse: HashMap<PathBuf, usize>,
+    next: usize, // starts at 1; 0 reserved for root
+}
 ```
 
-- `"0"` = root (lists each configured folder as a child container).
-- Any other id is the stringified u64 from the map.
-
-Ids are allocated on demand the first time `browse` encounters a path (file or directory). Stable for the process lifetime; not persisted across restarts (acceptable — VLC re-browses on reconnect).
+- `0` = root container (lists each configured folder as a child container).
+- Any other id is allocated on demand the first time `browse` encounters that path. Stable for the process lifetime; not persisted across restarts.
 
 ## Streaming handler
 
@@ -200,12 +211,13 @@ hostname = "0.4"
 url = "2"
 percent-encoding = "2"
 http-range-header = "0.4"
-styx = "…"  # pin latest
-upnp-serve = { git = "https://github.com/ikatson/rqbit", rev = "<pinned-rev>" }
+facet = "0.27"
+facet-styx = "0.27"
+librqbit-upnp-serve = "1.0"
 tokio-util = { version = "0.7", features = ["io"] }
 ```
 
-Pin the rqbit revision (specific commit hash) to avoid surprise breakage.
+`librqbit-upnp-serve` is published on crates.io — no git dep needed.
 
 ## Failure modes & handling
 
