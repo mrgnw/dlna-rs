@@ -43,3 +43,12 @@ export async function browse(path?: string): Promise<BrowseResp> {
 	if (!r.ok) throw new Error(await r.text());
 	return r.json();
 }
+
+export type FileMeta = { rel: string; size: number };
+export type FilesResp = { folder: string; recursive: boolean; files: FileMeta[] };
+
+export async function listFiles(folder: string): Promise<FilesResp> {
+	const r = await fetch(`/api/files?path=${encodeURIComponent(folder)}`);
+	if (!r.ok) throw new Error(await r.text());
+	return r.json();
+}
