@@ -1,3 +1,6 @@
+use clap::Parser;
+use dlna_rs::{cli::Cli, config::Config};
+
 fn main() -> anyhow::Result<()> {
 	tracing_subscriber::fmt()
 		.with_env_filter(
@@ -5,7 +8,15 @@ fn main() -> anyhow::Result<()> {
 				.unwrap_or_else(|_| "dlna_rs=info".into()),
 		)
 		.init();
-	let cfg = dlna_rs::config::Config::load_or_default(&dlna_rs::config::Config::default_path())?;
-	tracing::info!(port = cfg.port, friendly_name = %cfg.friendly_name, folders = cfg.folders.len(), "loaded config");
+	let cli = Cli::parse();
+	let cfg_path = cli.config.clone().unwrap_or_else(Config::default_path);
+	let mut cfg = Config::load_or_default(&cfg_path)?;
+	cli.apply(&mut cfg);
+	tracing::info!(
+		?cfg_path,
+		port = cfg.port,
+		folders = cfg.folders.len(),
+		"config ready"
+	);
 	Ok(())
 }
