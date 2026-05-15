@@ -36,6 +36,24 @@ pub struct RemoveFolderReq {
 }
 
 #[derive(Deserialize)]
+pub struct FilesQuery {
+	pub path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FileMetaView {
+	pub rel: String,
+	pub size: u64,
+}
+
+#[derive(Serialize)]
+pub struct FilesResp {
+	pub folder: String,
+	pub recursive: bool,
+	pub files: Vec<FileMetaView>,
+}
+
+#[derive(Deserialize)]
 pub struct BrowseQuery {
 	pub path: Option<String>,
 }
@@ -57,6 +75,7 @@ pub fn router(state: AppState) -> Router {
 	Router::new()
 		.route("/api/folders", get(list_folders).post(add_folder).delete(remove_folder))
 		.route("/api/folders/refresh", post(refresh_folder))
+		.route("/api/files", get(list_files))
 		.route("/api/browse", get(browse))
 		.route("/api/status", get(api_status))
 		.route("/status", get(status_text))
@@ -116,6 +135,33 @@ async fn refresh_folder(State(state): State<AppState>, Json(req): Json<RemoveFol
 		}
 		None => (StatusCode::NOT_FOUND, "folder not found").into_response(),
 	}
+}
+
+async fn list_files(State(state): State<AppState>, Query(q): Query<FilesQuery>) -> Response {
+	let raw = match q.path {
+		Some(p) if !p.is_empty() => p,
+		_ => return (StatusCode::BAD_REQUEST, "missing path query parameter").into_response(),
+	};
+	let target = match std::path::PathBuf::from(&raw).canonicalize() {
+		Ok(p) => p,
+		Err(_) => return (StatusCode::NOT_FOUND, "folder not configured").into_response(),
+	};
+	let g = state.lib.read().await;
+	let folder = match g.folders().iter().find(|f| f.path == target) {
+		Some(f) => f,
+		None => return (StatusCode::NOT_FOUND, "folder not configured").into_response(),
+	};
+	let files: Vec<FileMetaView> = folder.files.iter()
+		.map(|m| FileMetaView {
+			rel: m.rel.to_string_lossy().into_owned(),
+			size: m.size,
+		})
+		.collect();
+	Json(FilesResp {
+		folder: folder.path.to_string_lossy().into_owned(),
+		recursive: folder.recursive,
+		files,
+	}).into_response()
 }
 
 async fn browse(Query(q): Query<BrowseQuery>) -> Response {
