@@ -20,10 +20,17 @@ impl Entry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileMeta {
+	pub rel: std::path::PathBuf,
+	pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Folder {
 	pub path: PathBuf,
 	pub recursive: bool,
 	pub file_count: usize,
+	pub files: Vec<FileMeta>,
 }
 
 #[derive(Debug, Default)]
@@ -79,11 +86,12 @@ impl Library {
 		if self.folders.iter().any(|f| f.path == canonical) {
 			anyhow::bail!("folder already added: {}", canonical.display());
 		}
-		let file_count = Self::count_files(&canonical, recursive);
+		let files = Self::walk_files(&canonical, recursive);
 		let folder = Folder {
 			path: canonical,
 			recursive,
-			file_count,
+			file_count: files.len(),
+			files,
 		};
 		self.folders.push(folder.clone());
 		Ok(folder)
@@ -99,19 +107,28 @@ impl Library {
 	pub fn refresh_count(&mut self, path: &Path) -> Option<usize> {
 		let target = path.canonicalize().ok()?;
 		let f = self.folders.iter_mut().find(|f| f.path == target)?;
-		f.file_count = Self::count_files(&f.path, f.recursive);
+		let files = Self::walk_files(&f.path, f.recursive);
+		f.file_count = files.len();
+		f.files = files;
 		Some(f.file_count)
 	}
 
-	fn count_files(root: &Path, recursive: bool) -> usize {
+	fn walk_files(root: &Path, recursive: bool) -> Vec<FileMeta> {
 		let max_depth = if recursive { usize::MAX } else { 1 };
-		walkdir::WalkDir::new(root)
+		let mut out: Vec<FileMeta> = walkdir::WalkDir::new(root)
 			.max_depth(max_depth)
 			.follow_links(false)
 			.into_iter()
 			.filter_map(|e| e.ok())
 			.filter(|e| e.file_type().is_file())
-			.count()
+			.filter_map(|e| {
+				let rel = e.path().strip_prefix(root).ok()?.to_path_buf();
+				let size = e.metadata().ok()?.len();
+				Some(FileMeta { rel, size })
+			})
+			.collect();
+		out.sort_by(|a, b| a.rel.cmp(&b.rel));
+		out
 	}
 
 	pub fn from_config(folders: &[crate::config::Folder]) -> Self {
