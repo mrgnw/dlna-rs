@@ -14,7 +14,7 @@ use tokio_util::io::ReaderStream;
 const CHUNK: usize = 64 * 1024;
 
 pub fn router(state: AppState) -> Router {
-	Router::new().route("/stream/:id", get(handle)).with_state(state)
+	Router::new().route("/stream/{id}", get(handle)).with_state(state)
 }
 
 async fn handle(

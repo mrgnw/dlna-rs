@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 clap = { version = "4", features = ["derive"] }
 facet = "0.46"
 facet-styx = "3"
