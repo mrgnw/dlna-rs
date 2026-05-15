@@ -113,4 +113,25 @@ impl Library {
 			.filter(|e| e.file_type().is_file())
 			.count()
 	}
+
+	pub fn from_config(folders: &[crate::config::Folder]) -> Self {
+		let mut lib = Self::new();
+		for f in folders {
+			let path = std::path::PathBuf::from(&f.path);
+			if let Err(e) = lib.add_folder(path.clone(), f.recursive) {
+				tracing::warn!(?path, "skipping folder: {e}");
+			}
+		}
+		lib
+	}
+
+	pub fn to_config_folders(&self) -> Vec<crate::config::Folder> {
+		self.folders
+			.iter()
+			.map(|f| crate::config::Folder {
+				path: f.path.to_string_lossy().into_owned(),
+				recursive: f.recursive,
+			})
+			.collect()
+	}
 }
