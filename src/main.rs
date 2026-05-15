@@ -5,6 +5,7 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "dlna_rs=info".into()),
         )
         .init();
-    tracing::info!("dlna-rs starting");
+    let cfg = dlna_rs::config::Config::load_or_default(&dlna_rs::config::Config::default_path())?;
+    tracing::info!(port = cfg.port, friendly_name = %cfg.friendly_name, folders = cfg.folders.len(), "loaded config");
     Ok(())
 }
