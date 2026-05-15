@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub type LibState = Arc<RwLock<Library>>;
+#[derive(Clone)]
+pub struct AppState {
+	pub lib: Arc<RwLock<Library>>,
+	pub cfg_path: Arc<std::path::PathBuf>,
+}
 
 #[derive(Serialize)]
 pub struct FolderView {
@@ -49,44 +53,67 @@ pub struct BrowseResp {
 	pub entries: Vec<BrowseEntry>,
 }
 
-pub fn router(lib: LibState) -> Router {
+pub fn router(state: AppState) -> Router {
 	Router::new()
 		.route("/api/folders", get(list_folders).post(add_folder).delete(remove_folder))
 		.route("/api/folders/refresh", post(refresh_folder))
 		.route("/api/browse", get(browse))
 		.route("/api/status", get(api_status))
 		.route("/status", get(status_text))
-		.with_state(lib)
+		.with_state(state)
 }
 
-async fn list_folders(State(lib): State<LibState>) -> Json<Vec<FolderView>> {
-	Json(snapshot(&*lib.read().await))
+async fn persist(state: &AppState) {
+	let folders = {
+		let g = state.lib.read().await;
+		g.to_config_folders()
+	};
+	let mut cfg = crate::config::Config::load_or_default(&state.cfg_path)
+		.unwrap_or_else(|_| crate::config::Config::with_defaults());
+	cfg.folders = folders;
+	if let Err(e) = cfg.save_atomic(&state.cfg_path) {
+		tracing::warn!("save config: {e}");
+	}
 }
 
-async fn add_folder(State(lib): State<LibState>, Json(req): Json<AddFolderReq>) -> Response {
-	let mut g = lib.write().await;
+async fn list_folders(State(state): State<AppState>) -> Json<Vec<FolderView>> {
+	Json(snapshot(&*state.lib.read().await))
+}
+
+async fn add_folder(State(state): State<AppState>, Json(req): Json<AddFolderReq>) -> Response {
+	let mut g = state.lib.write().await;
 	match g.add_folder(PathBuf::from(&req.path), req.recursive) {
-		Ok(f) => (StatusCode::CREATED, Json(FolderView {
-			path: f.path.to_string_lossy().into_owned(),
-			recursive: f.recursive,
-			file_count: f.file_count,
-		})).into_response(),
+		Ok(f) => {
+			let view = FolderView {
+				path: f.path.to_string_lossy().into_owned(),
+				recursive: f.recursive,
+				file_count: f.file_count,
+			};
+			drop(g);
+			persist(&state).await;
+			(StatusCode::CREATED, Json(view)).into_response()
+		}
 		Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
 	}
 }
 
-async fn remove_folder(State(lib): State<LibState>, Json(req): Json<RemoveFolderReq>) -> StatusCode {
-	if lib.write().await.remove_folder(&PathBuf::from(&req.path)) {
+async fn remove_folder(State(state): State<AppState>, Json(req): Json<RemoveFolderReq>) -> StatusCode {
+	if state.lib.write().await.remove_folder(&PathBuf::from(&req.path)) {
+		persist(&state).await;
 		StatusCode::NO_CONTENT
 	} else {
 		StatusCode::NOT_FOUND
 	}
 }
 
-async fn refresh_folder(State(lib): State<LibState>, Json(req): Json<RemoveFolderReq>) -> Response {
-	let mut g = lib.write().await;
+async fn refresh_folder(State(state): State<AppState>, Json(req): Json<RemoveFolderReq>) -> Response {
+	let mut g = state.lib.write().await;
 	match g.refresh_count(&PathBuf::from(&req.path)) {
-		Some(n) => Json(serde_json::json!({ "file_count": n })).into_response(),
+		Some(n) => {
+			drop(g);
+			persist(&state).await;
+			Json(serde_json::json!({ "file_count": n })).into_response()
+		}
 		None => (StatusCode::NOT_FOUND, "folder not found").into_response(),
 	}
 }
@@ -115,14 +142,14 @@ async fn browse(Query(q): Query<BrowseQuery>) -> Response {
 	Json(BrowseResp { path: path.to_string_lossy().into_owned(), parent, entries }).into_response()
 }
 
-async fn api_status(State(lib): State<LibState>) -> Json<serde_json::Value> {
-	let g = lib.read().await;
+async fn api_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+	let g = state.lib.read().await;
 	let folders = snapshot(&*g);
 	Json(serde_json::json!({ "folders": folders }))
 }
 
-async fn status_text(State(lib): State<LibState>) -> String {
-	let g = lib.read().await;
+async fn status_text(State(state): State<AppState>) -> String {
+	let g = state.lib.read().await;
 	let folders = snapshot(&*g);
 	let mut s = String::new();
 	for f in folders {

@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use dlna_rs::api::router;
+use dlna_rs::api::{router, AppState};
 use dlna_rs::library::Library;
 use http_body_util::BodyExt;
 use std::sync::Arc;
@@ -8,10 +8,17 @@ use tempfile::tempdir;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
+fn make_state(lib: Arc<RwLock<Library>>) -> AppState {
+	AppState {
+		lib,
+		cfg_path: Arc::new(tempfile::NamedTempFile::new().unwrap().path().to_path_buf()),
+	}
+}
+
 #[tokio::test]
 async fn list_folders_empty() {
 	let lib = Arc::new(RwLock::new(Library::new()));
-	let app = router(lib);
+	let app = router(make_state(lib));
 	let res = app.oneshot(Request::builder().uri("/api/folders").body(Body::empty()).unwrap())
 		.await.unwrap();
 	assert_eq!(res.status(), StatusCode::OK);
@@ -24,7 +31,7 @@ async fn add_then_list_folder() {
 	let dir = tempdir().unwrap();
 	std::fs::write(dir.path().join("a.mp4"), b"x").unwrap();
 	let lib = Arc::new(RwLock::new(Library::new()));
-	let app = router(lib.clone());
+	let app = router(make_state(lib.clone()));
 
 	let body = serde_json::json!({ "path": dir.path().to_str().unwrap(), "recursive": true });
 	let req = Request::builder()
@@ -51,7 +58,7 @@ async fn delete_folder() {
 	std::fs::write(dir.path().join("a.mp4"), b"x").unwrap();
 	let lib = Arc::new(RwLock::new(Library::new()));
 	lib.write().await.add_folder(dir.path().to_path_buf(), true).unwrap();
-	let app = router(lib.clone());
+	let app = router(make_state(lib.clone()));
 	let body = serde_json::json!({ "path": dir.path().to_str().unwrap() });
 	let req = Request::builder()
 		.method("DELETE")
@@ -69,7 +76,7 @@ async fn status_endpoint_lists_folders() {
 	std::fs::write(dir.path().join("a.mp4"), b"x").unwrap();
 	let lib = Arc::new(RwLock::new(Library::new()));
 	lib.write().await.add_folder(dir.path().to_path_buf(), true).unwrap();
-	let app = router(lib);
+	let app = router(make_state(lib));
 	let res = app.oneshot(Request::builder().uri("/status").body(Body::empty()).unwrap())
 		.await.unwrap();
 	assert_eq!(res.status(), StatusCode::OK);
