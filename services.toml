@@ -1,0 +1,5 @@
+[dlna]
+run = "./target/release/dlna-rs"
+ports = [9119]
+restart = true
+restart_delay = 2
