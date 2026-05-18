@@ -11,8 +11,8 @@ folders ({path "/tmp/a", recursive true} {path "/tmp/b", recursive false})
 	assert_eq!(cfg.port, 9119);
 	assert_eq!(cfg.folders.len(), 2);
 	assert_eq!(cfg.folders[0].path, "/tmp/a");
-	assert_eq!(cfg.folders[0].recursive, true);
-	assert_eq!(cfg.folders[1].recursive, false);
+	assert!(cfg.folders[0].recursive);
+	assert!(!cfg.folders[1].recursive);
 
 	let out = facet_styx::to_string(&cfg).unwrap();
 	let cfg2: Config = facet_styx::from_str(&out).unwrap();

@@ -190,13 +190,13 @@ async fn browse(Query(q): Query<BrowseQuery>) -> Response {
 
 async fn api_status(State(state): State<AppState>) -> Json<serde_json::Value> {
 	let g = state.lib.read().await;
-	let folders = snapshot(&*g);
+	let folders = snapshot(&g);
 	Json(serde_json::json!({ "folders": folders }))
 }
 
 async fn status_text(State(state): State<AppState>) -> String {
 	let g = state.lib.read().await;
-	let folders = snapshot(&*g);
+	let folders = snapshot(&g);
 	let mut s = String::new();
 	for f in folders {
 		s.push_str(&format!("{}  {} files\n", f.path, f.file_count));

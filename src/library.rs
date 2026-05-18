@@ -121,6 +121,7 @@ impl Library {
 			.into_iter()
 			.filter_map(|e| e.ok())
 			.filter(|e| e.file_type().is_file())
+			.filter(|e| is_media_file(e.path()))
 			.filter_map(|e| {
 				let rel = e.path().strip_prefix(root).ok()?.to_path_buf();
 				let size = e.metadata().ok()?.len();
@@ -150,5 +151,17 @@ impl Library {
 				recursive: f.recursive,
 			})
 			.collect()
+	}
+}
+
+pub fn is_media_file(path: &Path) -> bool {
+	match mime_guess::from_path(path).first() {
+		Some(mime) => {
+			let essence = mime.essence_str();
+			essence.starts_with("audio/")
+				|| essence.starts_with("image/")
+				|| essence.starts_with("video/")
+		}
+		None => false,
 	}
 }

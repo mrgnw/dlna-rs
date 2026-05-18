@@ -1,4 +1,4 @@
-use dlna_rs::library::{Entry, FileMeta, Library};
+use dlna_rs::library::{is_media_file, Entry, Library};
 use std::fs;
 use tempfile::tempdir;
 
@@ -19,6 +19,42 @@ fn add_folder_counts_files_recursively() {
 	let f = lib.add_folder(dir.path().to_path_buf(), true).unwrap();
 	assert_eq!(f.file_count, 3);
 	assert_eq!(lib.folders().len(), 1);
+}
+
+#[test]
+fn add_folder_counts_only_media_files() {
+	let dir = tempdir().unwrap();
+	make_tree(
+		dir.path(),
+		&[
+			".DS_Store",
+			"a.mp4",
+			"cover.jpg",
+			"notes.strings",
+			"sub/b.mkv",
+		],
+	);
+
+	let mut lib = Library::new();
+	let f = lib.add_folder(dir.path().to_path_buf(), true).unwrap();
+
+	let rels: Vec<String> = f
+		.files
+		.iter()
+		.map(|m| m.rel.to_string_lossy().into_owned())
+		.collect();
+	assert_eq!(f.file_count, 3);
+	assert_eq!(rels, vec!["a.mp4", "cover.jpg", "sub/b.mkv"]);
+}
+
+#[test]
+fn media_file_detection_uses_media_mime_types() {
+	assert!(is_media_file(std::path::Path::new("movie.mp4")));
+	assert!(is_media_file(std::path::Path::new("song.flac")));
+	assert!(is_media_file(std::path::Path::new("poster.webp")));
+	assert!(!is_media_file(std::path::Path::new(".DS_Store")));
+	assert!(!is_media_file(std::path::Path::new("Application.tvdb")));
+	assert!(!is_media_file(std::path::Path::new("ca.strings")));
 }
 
 #[test]
