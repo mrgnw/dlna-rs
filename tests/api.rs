@@ -106,8 +106,11 @@ async fn list_folders_does_not_include_file_list() {
 async fn list_files_for_configured_folder() {
 	let dir = tempdir().unwrap();
 	std::fs::create_dir(dir.path().join("sub")).unwrap();
+	std::fs::write(dir.path().join(".DS_Store"), b"junk").unwrap();
 	std::fs::write(dir.path().join("a.mp4"), b"hello").unwrap();
+	std::fs::write(dir.path().join("ca.strings"), b"junk").unwrap();
 	std::fs::write(dir.path().join("sub/b.mp4"), b"world!").unwrap();
+	std::fs::write(dir.path().join("sub/metadata.tvdb"), b"junk").unwrap();
 
 	let lib = Arc::new(RwLock::new(Library::new()));
 	let canonical = lib.write().await.add_folder(dir.path().to_path_buf(), true).unwrap().path;
