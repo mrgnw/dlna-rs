@@ -1306,7 +1306,6 @@ dependencies = [
 [[package]]
 name = "librqbit-upnp-serve"
 version = "1.0.1"
-source = "git+https://github.com/ikatson/rqbit#f9b4aee85aff0fe52e206cfa3d3d5cc7e7d24947"
 dependencies = [
  "anyhow",
  "axum",
