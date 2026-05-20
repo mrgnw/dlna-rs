@@ -384,6 +384,9 @@ fn is_discoverable_local_iface_ip(
 	ip: IpAddr,
 	nics: &[network_interface::NetworkInterface],
 ) -> bool {
+	if !is_advertisable_ip(ip) {
+		return false;
+	}
 	nics.iter()
 		.filter(|nic| is_discoverable_nic(&nic.name))
 		.flat_map(|nic| nic.addr.iter())
@@ -395,6 +398,33 @@ fn is_excluded_local_iface_ip(ip: IpAddr, nics: &[network_interface::NetworkInte
 		.filter(|nic| !is_discoverable_nic(&nic.name))
 		.flat_map(|nic| nic.addr.iter())
 		.any(|addr| addr.ip() == ip)
+}
+
+/// Whether an interface IP is suitable to advertise as a UPnP `Location`.
+///
+/// Rejects loopback, link-local, unspecified, multicast/broadcast, and the
+/// CGNAT range 100.64.0.0/10 used by Tailscale and carrier NAT — none of which
+/// a LAN renderer (e.g. an Apple TV) can route back to.
+pub fn is_advertisable_ip(ip: IpAddr) -> bool {
+	match ip {
+		IpAddr::V4(ip) => {
+			if ip.is_loopback()
+				|| ip.is_link_local()
+				|| ip.is_unspecified()
+				|| ip.is_broadcast()
+				|| ip.is_multicast()
+			{
+				return false;
+			}
+			let octets = ip.octets();
+			let is_cgnat = octets[0] == 100 && (octets[1] & 0xc0) == 0x40;
+			!is_cgnat
+		}
+		IpAddr::V6(ip) => {
+			let is_link_local = (ip.segments()[0] & 0xffc0) == 0xfe80;
+			!(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() || is_link_local)
+		}
+	}
 }
 
 fn is_discoverable_nic(name: &str) -> bool {
