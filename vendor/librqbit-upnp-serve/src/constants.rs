@@ -1,5 +1,7 @@
 pub const UPNP_DEVICE_ROOT: &str = "upnp:rootdevice";
 pub const UPNP_DEVICE_MEDIASERVER: &str = "urn:schemas-upnp-org:device:MediaServer:1";
+pub const UPNP_SERVICE_CONTENT_DIRECTORY: &str = "urn:schemas-upnp-org:service:ContentDirectory:1";
+pub const UPNP_SERVICE_CONNECTION_MANAGER: &str = "urn:schemas-upnp-org:service:ConnectionManager:1";
 pub const SSDP_ALL: &str = "ssdp:all";
 
 pub const SOAP_ACTION_CONTENT_DIRECTORY_BROWSE: &[u8] =
