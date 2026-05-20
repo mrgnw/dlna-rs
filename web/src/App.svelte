@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import FolderList from './FolderList.svelte';
 	import BrowseView from './BrowseView.svelte';
 	import AddFolderModal from './AddFolderModal.svelte';
@@ -8,6 +9,36 @@
 	let view = $state<View>({ kind: 'folders' });
 	let showAdd = $state(false);
 	let listRef: any = $state();
+
+	function viewFromLocation(): View {
+		const url = new URL(window.location.href);
+		if (url.pathname === '/folder') {
+			const folder = url.searchParams.get('path');
+			if (folder) return { kind: 'browse', folder };
+		}
+		return { kind: 'folders' };
+	}
+
+	function urlForView(next: View): string {
+		if (next.kind === 'folders') return '/';
+		return `/folder?path=${encodeURIComponent(next.folder)}`;
+	}
+
+	function navigate(next: View) {
+		view = next;
+		window.history.pushState(null, '', urlForView(next));
+	}
+
+	onMount(() => {
+		view = viewFromLocation();
+
+		function onPopState() {
+			view = viewFromLocation();
+		}
+
+		window.addEventListener('popstate', onPopState);
+		return () => window.removeEventListener('popstate', onPopState);
+	});
 
 	async function onAdded() {
 		showAdd = false;
@@ -20,10 +51,10 @@
 		<header>
 			<h1>dlna-rs</h1>
 		</header>
-		<FolderList bind:this={listRef} onbrowse={(p) => view = { kind: 'browse', folder: p }} />
+		<FolderList bind:this={listRef} onbrowse={(p) => navigate({ kind: 'browse', folder: p })} />
 		<button class="add" onclick={() => showAdd = true}>+ add folder…</button>
 	{:else}
-		<BrowseView folder={view.folder} onback={() => view = { kind: 'folders' }} />
+		<BrowseView folder={view.folder} onback={() => navigate({ kind: 'folders' })} />
 	{/if}
 
 	{#if showAdd}

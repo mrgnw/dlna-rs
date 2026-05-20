@@ -86,12 +86,29 @@ impl Library {
 		if self.folders.iter().any(|f| f.path == canonical) {
 			anyhow::bail!("folder already added: {}", canonical.display());
 		}
-		let files = Self::walk_files(&canonical, recursive);
+		let files = Self::scan_files(&canonical, recursive);
 		let folder = Folder {
 			path: canonical,
 			recursive,
 			file_count: files.len(),
 			files,
+		};
+		self.folders.push(folder.clone());
+		Ok(folder)
+	}
+
+	pub fn add_folder_unscanned(&mut self, path: PathBuf, recursive: bool) -> Result<Folder> {
+		let canonical = path
+			.canonicalize()
+			.with_context(|| format!("canonicalize {}", path.display()))?;
+		if self.folders.iter().any(|f| f.path == canonical) {
+			anyhow::bail!("folder already added: {}", canonical.display());
+		}
+		let folder = Folder {
+			path: canonical,
+			recursive,
+			file_count: 0,
+			files: Vec::new(),
 		};
 		self.folders.push(folder.clone());
 		Ok(folder)
@@ -107,18 +124,19 @@ impl Library {
 	pub fn refresh_count(&mut self, path: &Path) -> Option<usize> {
 		let target = path.canonicalize().ok()?;
 		let f = self.folders.iter_mut().find(|f| f.path == target)?;
-		let files = Self::walk_files(&f.path, f.recursive);
+		let files = Self::scan_files(&f.path, f.recursive);
 		f.file_count = files.len();
 		f.files = files;
 		Some(f.file_count)
 	}
 
-	fn walk_files(root: &Path, recursive: bool) -> Vec<FileMeta> {
+	pub fn scan_files(root: &Path, recursive: bool) -> Vec<FileMeta> {
 		let max_depth = if recursive { usize::MAX } else { 1 };
 		let mut out: Vec<FileMeta> = walkdir::WalkDir::new(root)
 			.max_depth(max_depth)
 			.follow_links(false)
 			.into_iter()
+			.filter_entry(should_walk_entry)
 			.filter_map(|e| e.ok())
 			.filter(|e| e.file_type().is_file())
 			.filter(|e| is_media_file(e.path()))
@@ -132,11 +150,29 @@ impl Library {
 		out
 	}
 
+	pub fn replace_folder_files(&mut self, path: &Path, files: Vec<FileMeta>) -> Option<usize> {
+		let f = self.folders.iter_mut().find(|f| f.path == path)?;
+		f.file_count = files.len();
+		f.files = files;
+		Some(f.file_count)
+	}
+
 	pub fn from_config(folders: &[crate::config::Folder]) -> Self {
 		let mut lib = Self::new();
 		for f in folders {
 			let path = std::path::PathBuf::from(&f.path);
 			if let Err(e) = lib.add_folder(path.clone(), f.recursive) {
+				tracing::warn!(?path, "skipping folder: {e}");
+			}
+		}
+		lib
+	}
+
+	pub fn from_config_unscanned(folders: &[crate::config::Folder]) -> Self {
+		let mut lib = Self::new();
+		for f in folders {
+			let path = std::path::PathBuf::from(&f.path);
+			if let Err(e) = lib.add_folder_unscanned(path.clone(), f.recursive) {
 				tracing::warn!(?path, "skipping folder: {e}");
 			}
 		}
@@ -156,12 +192,39 @@ impl Library {
 
 pub fn is_media_file(path: &Path) -> bool {
 	match mime_guess::from_path(path).first() {
-		Some(mime) => {
-			let essence = mime.essence_str();
-			essence.starts_with("audio/")
-				|| essence.starts_with("image/")
-				|| essence.starts_with("video/")
-		}
+		Some(mime) => mime.essence_str().starts_with("video/"),
 		None => false,
 	}
+}
+
+fn should_walk_entry(entry: &walkdir::DirEntry) -> bool {
+	if entry.depth() == 0 || !entry.file_type().is_dir() {
+		return true;
+	}
+	let name = entry.file_name().to_string_lossy();
+	if name.starts_with('.') || name.starts_with('@') {
+		return false;
+	}
+	let lowercase = name.to_lowercase();
+	if lowercase.contains("trickplay") || lowercase.contains("cover art") {
+		return false;
+	}
+	let path = entry.path();
+	if is_apple_tv_app_container(path) {
+		return false;
+	}
+	!matches!(
+		path.extension().and_then(|ext| ext.to_str()),
+		Some("tvlibrary" | "photoslibrary" | "musiclibrary")
+	)
+}
+
+fn is_apple_tv_app_container(path: &Path) -> bool {
+	if path.file_name().and_then(|name| name.to_str()) != Some("TV") {
+		return false;
+	}
+	path.parent()
+		.and_then(|parent| parent.file_name())
+		.and_then(|name| name.to_str())
+		== Some("Movies")
 }
