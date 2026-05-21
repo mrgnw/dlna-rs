@@ -47,6 +47,39 @@ async fn provider_browses_inside_tokio_runtime() {
 }
 
 #[tokio::test]
+async fn provider_reports_child_counts_on_containers() {
+	let dir = tempdir().unwrap();
+	std::fs::create_dir(dir.path().join("empty")).unwrap();
+	std::fs::create_dir(dir.path().join("docs")).unwrap();
+	std::fs::create_dir_all(dir.path().join("shows/season1")).unwrap();
+	std::fs::write(dir.path().join("movie.mp4"), b"x").unwrap();
+	std::fs::write(dir.path().join("docs/readme.txt"), b"x").unwrap();
+	std::fs::write(dir.path().join("shows/season1/episode.mkv"), b"x").unwrap();
+
+	let mut library = Library::new();
+	library.add_folder(dir.path().to_path_buf(), true).unwrap();
+	let provider = LibraryProvider(Arc::new(RwLock::new(library)));
+
+	let root = provider.browse_direct_children(0, "127.0.0.1:9119");
+	let folder = match root.as_slice() {
+		[ItemOrContainer::Container(folder)] => folder.clone(),
+		other => panic!("expected one root folder, got {other:?}"),
+	};
+	// movie.mp4 + shows/ are playable; empty/ and docs/ are not.
+	assert_eq!(folder.children_count, Some(2));
+
+	let children = provider.browse_direct_children(folder.id, "127.0.0.1:9119");
+	let shows = children
+		.iter()
+		.find_map(|c| match c {
+			ItemOrContainer::Container(c) if c.title == "shows" => Some(c.clone()),
+			_ => None,
+		})
+		.expect("shows container");
+	assert_eq!(shows.children_count, Some(1));
+}
+
+#[tokio::test]
 async fn provider_hides_configured_folders_without_playable_videos() {
 	let with_video = tempdir().unwrap();
 	let images_only = tempdir().unwrap();

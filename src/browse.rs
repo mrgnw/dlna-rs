@@ -29,12 +29,13 @@ impl ContentDirectoryBrowseProvider for LibraryProvider {
 				.collect();
 			let duplicate_names = duplicate_source_names(&folder_paths);
 			for folder_path in folder_paths {
+				let children_count = playable_child_count(&lib, &folder_path);
 				let id = lib.intern(Entry::Dir(folder_path.clone()));
 				let title = source_folder_title(&folder_path, &duplicate_names);
 				out.push(ItemOrContainer::Container(Container {
 					id,
 					parent_id: Some(0),
-					children_count: None,
+					children_count,
 					title,
 				}));
 			}
@@ -152,16 +153,37 @@ fn children_for_dir(
 
 	for name in child_dirs {
 		let path = dir.join(&name);
+		let children_count = playable_child_count(lib, &path);
 		let id = lib.intern(Entry::Dir(path));
 		out.push(ItemOrContainer::Container(Container {
 			id,
 			parent_id: Some(parent_id),
-			children_count: None,
+			children_count,
 			title: name.to_string_lossy().into_owned(),
 		}));
 	}
 
 	out
+}
+
+fn playable_child_count(lib: &Library, dir: &Path) -> Option<usize> {
+	let (folder_path, files, base_rel) = folder_files_for_dir(lib, dir)?;
+	let mut files_count = 0usize;
+	let mut child_dirs = BTreeSet::new();
+	for file in &files {
+		let path = folder_path.join(&file.rel);
+		if !is_media_file(&path) {
+			continue;
+		}
+		match child_under_dir(&base_rel, &file.rel) {
+			Some(Child::File) => files_count += 1,
+			Some(Child::Dir(name)) => {
+				child_dirs.insert(name);
+			}
+			None => {}
+		}
+	}
+	Some(files_count + child_dirs.len())
 }
 
 fn folder_files_for_dir(lib: &Library, dir: &Path) -> Option<(PathBuf, Vec<FileMeta>, PathBuf)> {
