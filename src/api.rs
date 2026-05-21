@@ -1,4 +1,4 @@
-use crate::library::Library;
+use crate::library::{is_media_file, FileMeta, Library};
 use axum::{
 	extract::{Query, State},
 	http::StatusCode,
@@ -73,7 +73,10 @@ pub struct BrowseResp {
 
 pub fn router(state: AppState) -> Router {
 	Router::new()
-		.route("/api/folders", get(list_folders).post(add_folder).delete(remove_folder))
+		.route(
+			"/api/folders",
+			get(list_folders).post(add_folder).delete(remove_folder),
+		)
 		.route("/api/folders/refresh", post(refresh_folder))
 		.route("/api/files", get(list_files))
 		.route("/api/browse", get(browse))
@@ -116,8 +119,16 @@ async fn add_folder(State(state): State<AppState>, Json(req): Json<AddFolderReq>
 	}
 }
 
-async fn remove_folder(State(state): State<AppState>, Json(req): Json<RemoveFolderReq>) -> StatusCode {
-	if state.lib.write().await.remove_folder(&PathBuf::from(&req.path)) {
+async fn remove_folder(
+	State(state): State<AppState>,
+	Json(req): Json<RemoveFolderReq>,
+) -> StatusCode {
+	if state
+		.lib
+		.write()
+		.await
+		.remove_folder(&PathBuf::from(&req.path))
+	{
 		persist(&state).await;
 		StatusCode::NO_CONTENT
 	} else {
@@ -125,7 +136,10 @@ async fn remove_folder(State(state): State<AppState>, Json(req): Json<RemoveFold
 	}
 }
 
-async fn refresh_folder(State(state): State<AppState>, Json(req): Json<RemoveFolderReq>) -> Response {
+async fn refresh_folder(
+	State(state): State<AppState>,
+	Json(req): Json<RemoveFolderReq>,
+) -> Response {
 	let mut g = state.lib.write().await;
 	match g.refresh_count(&PathBuf::from(&req.path)) {
 		Some(n) => {
@@ -151,7 +165,8 @@ async fn list_files(State(state): State<AppState>, Query(q): Query<FilesQuery>) 
 		Some(f) => f,
 		None => return (StatusCode::NOT_FOUND, "folder not configured").into_response(),
 	};
-	let files: Vec<FileMetaView> = folder.files.iter()
+	let files: Vec<FileMetaView> = playable_files(folder.path.as_path(), &folder.files)
+		.into_iter()
 		.map(|m| FileMetaView {
 			rel: m.rel.to_string_lossy().into_owned(),
 			size: m.size,
@@ -161,31 +176,45 @@ async fn list_files(State(state): State<AppState>, Query(q): Query<FilesQuery>) 
 		folder: folder.path.to_string_lossy().into_owned(),
 		recursive: folder.recursive,
 		files,
-	}).into_response()
+	})
+	.into_response()
 }
 
 async fn browse(Query(q): Query<BrowseQuery>) -> Response {
-	let path = q.path
-		.map(PathBuf::from)
-		.unwrap_or_else(|| std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/")));
+	let path = q.path.map(PathBuf::from).unwrap_or_else(|| {
+		std::env::var_os("HOME")
+			.map(PathBuf::from)
+			.unwrap_or_else(|| PathBuf::from("/"))
+	});
 	let path = match path.canonicalize() {
 		Ok(p) => p,
 		Err(e) => return (StatusCode::BAD_REQUEST, format!("canonicalize: {e}")).into_response(),
 	};
 	let mut entries: Vec<BrowseEntry> = match std::fs::read_dir(&path) {
-		Ok(rd) => rd.filter_map(|e| e.ok())
+		Ok(rd) => rd
+			.filter_map(|e| e.ok())
 			.filter_map(|e| {
 				let ft = e.file_type().ok()?;
 				let name = e.file_name().to_string_lossy().into_owned();
-				if name.starts_with('.') { return None; }
-				Some(BrowseEntry { name, is_dir: ft.is_dir() })
+				if name.starts_with('.') {
+					return None;
+				}
+				Some(BrowseEntry {
+					name,
+					is_dir: ft.is_dir(),
+				})
 			})
 			.collect(),
 		Err(e) => return (StatusCode::BAD_REQUEST, format!("read_dir: {e}")).into_response(),
 	};
 	entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
 	let parent = path.parent().map(|p| p.to_string_lossy().into_owned());
-	Json(BrowseResp { path: path.to_string_lossy().into_owned(), parent, entries }).into_response()
+	Json(BrowseResp {
+		path: path.to_string_lossy().into_owned(),
+		parent,
+		entries,
+	})
+	.into_response()
 }
 
 async fn api_status(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -201,14 +230,26 @@ async fn status_text(State(state): State<AppState>) -> String {
 	for f in folders {
 		s.push_str(&format!("{}  {} files\n", f.path, f.file_count));
 	}
-	if s.is_empty() { s.push_str("(no folders configured)\n"); }
+	if s.is_empty() {
+		s.push_str("(no folders configured)\n");
+	}
 	s
 }
 
 fn snapshot(lib: &Library) -> Vec<FolderView> {
-	lib.folders().iter().map(|f| FolderView {
-		path: f.path.to_string_lossy().into_owned(),
-		recursive: f.recursive,
-		file_count: f.file_count,
-	}).collect()
+	lib.folders()
+		.iter()
+		.map(|f| FolderView {
+			path: f.path.to_string_lossy().into_owned(),
+			recursive: f.recursive,
+			file_count: playable_files(f.path.as_path(), &f.files).len(),
+		})
+		.collect()
+}
+
+fn playable_files<'a>(folder_path: &std::path::Path, files: &'a [FileMeta]) -> Vec<&'a FileMeta> {
+	files
+		.iter()
+		.filter(|file| is_media_file(&folder_path.join(&file.rel)))
+		.collect()
 }

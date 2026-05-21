@@ -16,6 +16,7 @@ mod constants;
 mod http_server;
 pub mod services;
 mod ssdp;
+pub use ssdp::is_advertisable_ip;
 pub mod state;
 mod subscriptions;
 mod templates;
