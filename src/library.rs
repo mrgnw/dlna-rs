@@ -197,6 +197,47 @@ pub fn is_media_file(path: &Path) -> bool {
 	}
 }
 
+/// Index every configured folder, replacing each folder's cached file list as its
+/// scan completes. `scan` is injected so tests can substitute a slow/blocking scan.
+pub async fn index_folders(
+	lib: std::sync::Arc<tokio::sync::RwLock<Library>>,
+	scan: std::sync::Arc<dyn Fn(&Path, bool) -> Vec<FileMeta> + Send + Sync>,
+) {
+	let folders = {
+		let g = lib.read().await;
+		g.folders().to_vec()
+	};
+
+	let mut tasks = Vec::with_capacity(folders.len());
+	for folder in folders {
+		let lib = lib.clone();
+		let scan = scan.clone();
+		tasks.push(tokio::spawn(async move {
+			let path = folder.path.clone();
+			let recursive = folder.recursive;
+			tracing::info!(path = %path.display(), recursive, "indexing folder");
+			let scan_path = path.clone();
+			let files =
+				match tokio::task::spawn_blocking(move || scan(&scan_path, recursive)).await {
+					Ok(files) => files,
+					Err(e) => {
+						tracing::warn!(path = %path.display(), "index task failed: {e}");
+						return;
+					}
+				};
+			let n = files.len();
+			let mut g = lib.write().await;
+			if g.replace_folder_files(&path, files).is_some() {
+				tracing::info!(path = %path.display(), files = n, "indexed folder");
+			}
+		}));
+	}
+
+	for task in tasks {
+		let _ = task.await;
+	}
+}
+
 fn should_walk_entry(entry: &walkdir::DirEntry) -> bool {
 	if entry.depth() == 0 || !entry.file_type().is_dir() {
 		return true;

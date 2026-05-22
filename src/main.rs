@@ -57,7 +57,10 @@ async fn main() -> anyhow::Result<()> {
 	});
 
 	let server = tokio::spawn(async move { axum::serve(listener, app).await });
-	let index_handle = tokio::spawn(index_library(lib.clone()));
+	let index_handle = tokio::spawn(dlna_rs::library::index_folders(
+		lib.clone(),
+		Arc::new(|p: &std::path::Path, r| Library::scan_files(p, r)),
+	));
 
 	tokio::select! {
 		_ = tokio::signal::ctrl_c() => {
@@ -69,30 +72,4 @@ async fn main() -> anyhow::Result<()> {
 	index_handle.abort();
 	let _ = ssdp_handle.await;
 	Ok(())
-}
-
-async fn index_library(lib: Arc<RwLock<Library>>) {
-	let folders = {
-		let g = lib.read().await;
-		g.folders().to_vec()
-	};
-
-	for folder in folders {
-		let path = folder.path.clone();
-		let recursive = folder.recursive;
-		tracing::info!(path = %path.display(), recursive, "indexing folder");
-		let scan_path = path.clone();
-		let files = match tokio::task::spawn_blocking(move || Library::scan_files(&scan_path, recursive)).await {
-			Ok(files) => files,
-			Err(e) => {
-				tracing::warn!(path = %path.display(), "index task failed: {e}");
-				continue;
-			}
-		};
-		let n = files.len();
-		let mut g = lib.write().await;
-		if g.replace_folder_files(&path, files).is_some() {
-			tracing::info!(path = %path.display(), files = n, "indexed folder");
-		}
-	}
 }
