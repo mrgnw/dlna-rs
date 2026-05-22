@@ -1,4 +1,4 @@
-use crate::library::{is_media_file, Entry, FileMeta, Library};
+use crate::library::{clean_title, is_media_file, Entry, FileMeta, Library};
 use librqbit_upnp_serve::services::content_directory::{
 	browse::response::{Container, Item, ItemOrContainer},
 	ContentDirectoryBrowseProvider,
@@ -95,7 +95,7 @@ impl ContentDirectoryBrowseProvider for LibraryProvider {
 					parent_id: 0,
 					title: p
 						.file_name()
-						.map(|n| n.to_string_lossy().into_owned())
+						.map(|n| clean_title(&n.to_string_lossy()))
 						.unwrap_or_default(),
 					mime_type: mime,
 					url,
@@ -134,7 +134,7 @@ fn children_for_dir(
 				let url = format!("http://{http_hostname}/stream/{id}");
 				let title = path
 					.file_name()
-					.map(|n| n.to_string_lossy().into_owned())
+					.map(|n| clean_title(&n.to_string_lossy()))
 					.unwrap_or_default();
 				out.push(ItemOrContainer::Item(Item {
 					id,

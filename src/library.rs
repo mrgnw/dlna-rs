@@ -197,6 +197,128 @@ pub fn is_media_file(path: &Path) -> bool {
 	}
 }
 
+const MEDIA_EXTS: &[&str] = &[
+	"mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "wmv", "flv", "mpg", "mpeg", "m2ts",
+];
+
+/// Turn a media filename into a clean display title.
+///
+/// Movies become `Title (Year)`, TV episodes keep their `SxxExx` marker, and
+/// release-scene junk (resolution, codec, source, group tags) is dropped. Falls
+/// back to the filename without its extension if cleaning would empty the title.
+pub fn clean_title(file_name: &str) -> String {
+	let stem = strip_media_ext(file_name);
+	let normalized: String = stem
+		.chars()
+		.map(|c| if c == '.' || c == '_' { ' ' } else { c })
+		.collect();
+	let tokens: Vec<&str> = normalized.split_whitespace().collect();
+	if tokens.is_empty() {
+		return stem.to_string();
+	}
+
+	if let Some(idx) = tokens.iter().position(|t| is_tv_marker(t)) {
+		if idx >= 1 {
+			let title = tokens[..idx].join(" ");
+			let marker = tokens[idx].to_ascii_uppercase();
+			return non_empty_or_stem(format!("{title} {marker}"), stem);
+		}
+	}
+
+	// Cut at the first release tag, but never at index 0 (keep at least one title token).
+	let cut = tokens
+		.iter()
+		.enumerate()
+		.find(|(i, t)| *i >= 1 && is_release_tag(t))
+		.map(|(i, _)| i)
+		.unwrap_or(tokens.len());
+	let mut title_tokens = tokens[..cut].to_vec();
+
+	let year = title_tokens.last().and_then(|t| parse_year(t));
+	if year.is_some() {
+		title_tokens.pop();
+	}
+	let mut result = title_tokens.join(" ");
+	if let Some(y) = year {
+		result = if result.is_empty() {
+			format!("({y})")
+		} else {
+			format!("{result} ({y})")
+		};
+	}
+	non_empty_or_stem(result, stem)
+}
+
+fn strip_media_ext(name: &str) -> &str {
+	if let Some((stem, ext)) = name.rsplit_once('.') {
+		if MEDIA_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+			return stem;
+		}
+	}
+	name
+}
+
+fn non_empty_or_stem(result: String, stem: &str) -> String {
+	if result.trim().is_empty() {
+		stem.to_string()
+	} else {
+		result
+	}
+}
+
+fn is_tv_marker(tok: &str) -> bool {
+	let b = tok.as_bytes();
+	let mut i = 0;
+	if b.first() != Some(&b's') && b.first() != Some(&b'S') {
+		return false;
+	}
+	i += 1;
+	let s_start = i;
+	while i < b.len() && b[i].is_ascii_digit() {
+		i += 1;
+	}
+	if i == s_start || i - s_start > 2 {
+		return false;
+	}
+	if b.get(i) != Some(&b'e') && b.get(i) != Some(&b'E') {
+		return false;
+	}
+	i += 1;
+	let e_start = i;
+	while i < b.len() && b[i].is_ascii_digit() {
+		i += 1;
+	}
+	i != e_start && i - e_start <= 3 && i == b.len()
+}
+
+fn parse_year(tok: &str) -> Option<u32> {
+	let trimmed = tok.trim_start_matches('(').trim_end_matches(')');
+	if trimmed.len() != 4 || !trimmed.bytes().all(|c| c.is_ascii_digit()) {
+		return None;
+	}
+	let year: u32 = trimmed.parse().ok()?;
+	(1900..=2099).contains(&year).then_some(year)
+}
+
+fn is_release_tag(tok: &str) -> bool {
+	let lower = tok.to_ascii_lowercase();
+	let head = lower.split('-').next().unwrap_or(&lower);
+	if head.len() >= 3
+		&& head.ends_with('p')
+		&& head[..head.len() - 1].bytes().all(|c| c.is_ascii_digit())
+	{
+		return true;
+	}
+	const TAGS: &[&str] = &[
+		"web", "webrip", "webdl", "hdtv", "bluray", "bdrip", "brrip", "dvdrip", "dvd", "hdrip",
+		"hdcam", "cam", "ts", "telesync", "remux", "uhd", "4k", "x264", "x265", "h264", "h265",
+		"hevc", "avc", "xvid", "divx", "aac", "ac3", "eac3", "dts", "ddp", "ddp5", "dd5", "truehd",
+		"atmos", "flac", "mp3", "dual", "multi", "hdr", "hdr10", "dv", "sdr", "10bit", "8bit",
+		"proper", "repack", "extended", "unrated", "internal", "limited", "imax", "remastered",
+	];
+	TAGS.contains(&head) || TAGS.contains(&lower.as_str())
+}
+
 /// Index every configured folder, replacing each folder's cached file list as its
 /// scan completes. `scan` is injected so tests can substitute a slow/blocking scan.
 pub async fn index_folders(

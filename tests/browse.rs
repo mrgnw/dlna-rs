@@ -32,7 +32,7 @@ async fn provider_browses_inside_tokio_runtime() {
 	assert_eq!(children.len(), 2);
 	match &children[0] {
 		ItemOrContainer::Item(item) => {
-			assert_eq!(item.title, "movie.mp4");
+			assert_eq!(item.title, "movie");
 			assert_eq!(
 				item.mime_type.as_ref().map(|m| m.essence_str()),
 				Some("video/mp4")
