@@ -32,8 +32,3 @@ tempfile = "3"
 
 [patch.crates-io]
 librqbit-upnp-serve = { path = "vendor/librqbit-upnp-serve" }
-librqbit-upnp = { git = "https://github.com/ikatson/rqbit" }
-librqbit-core = { git = "https://github.com/ikatson/rqbit" }
-librqbit-buffers = { git = "https://github.com/ikatson/rqbit" }
-librqbit-bencode = { git = "https://github.com/ikatson/rqbit" }
-librqbit-clone-to-owned = { git = "https://github.com/ikatson/rqbit" }
